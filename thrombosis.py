@@ -75,12 +75,13 @@ def plottimeseriestoaxes(p, ax):
     #ax.set_title('Patient ' + str(p['fullname']))
     ax.plot([i[0] for i in p['data']], [i[1] for i in p['data']])
     ax.scatter(maxA[0], maxA[1], c='g')
-    d = data_after_split(p)
+    #d = data_after_split(p)
+    d=p['data']
     dAs = deltaamplitude(d)
     tdAmax, Acrit, dAmax = maxdeltaamplitude(p)
     amps = [a for t,a,da in dAs if a <= Acrit+amount_after_acrit]
     ts = [t for t,a,da in dAs if a <= Acrit + amount_after_acrit]
-    ax.plot(ts, amps, c='r', linewidth=3)
+    #ax.plot(ts, amps, c='r', linewidth=3)
     if m != None:
         ax.scatter(m[0], m[1], c='r')
         s = "Acrit (dA = %.2f, A = %.2f)" % (m[2], m[1])
@@ -117,9 +118,9 @@ def plotdavatoaxes(p, ax):
     ax.scatter([a for (t,a,da) in dA], [da for (t,a,da) in dA])
     area, d = dAintegration(p)
     plotbestfit(p, ax, numpy.Inf, 'g', False)
-    plotbestfit(p, ax, 0, 'b', True)
-    plotbestfit(p, ax, amount_after_acrit, 'r', True)
-    ax.legend(['Fit up to Amax', 'Fit up to Acrit', 'Fit up to Acrit + 2mm'])
+    plotbestfit(p, ax, 0, 'r', True)
+    #plotbestfit(p, ax, amount_after_acrit, 'r', True)
+    ax.legend(['Fit up to Amax', 'Fit up to Acrit'])
     #ax.fill_between([a for (t,a,da) in d], [da for (t,a,da) in d], 0, facecolor='r', alpha=0.7)
     #foo=(d[-1][1]/2, 0)
     #ax.annotate("Area from split to crit: %.2f"%(area), xy=foo)
@@ -324,76 +325,12 @@ def plotgroups(grouped_patients):
     plt.legend(legend_values)
     plt.title("Acrit versus amplitude grouped by sample type")
     plt.show()
-    
-def fooplot(patients):
-    amax = {}
-    acrit = {}
-    dacrit = {}
-    for p in patients:
-        if 'Acrit' in p:
-            if p['sampletype'] in amax:
-                acrit[p['sampletype']].append(p['Acrit'])
-                amax[p['sampletype']].append(p['Amax'])
-                dacrit[p['sampletype']].append(p['dAmax'])
-            else:
-                acrit[p['sampletype']] = [p['Acrit']]
-                amax[p['sampletype']] = [p['Amax']]
-                dacrit[p['sampletype']] = [p['dAmax']]
 
-    colors = ['k', 'b', 'g', 'r', 'm', 'y']
-    legend = []
-    fig, (a1, a2) = plt.subplots(2, 1)
-    for (p, col) in zip(amax, colors):
-        a1.scatter(acrit[p], amax[p], c = col)
-        a2.scatter(acrit[p], amax[p], c = col)
-        legend.append(p)
-    x1,x2,y1,y2 = a2.axis()
-    a1.set_title("Amax v. Acrit")
-    p#a2.set_xlim((0, 2.5))
-    a2.set_title("Zoomed in on the main cluster")
-    a1.legend(legend, loc=4, title="Sample Type")
-    a2.set_xlabel("Acrit (mm)")
-    a1.set_ylabel("Amax (mm)")
-    a2.set_ylabel("Amax (mm)")
-    plt.show()
-    
-def barfoo(patients):
-    amax = {}
-    a5 = {}
-    d10 = {}
-    for p in patients:
-        if 'Acrit' in p:
-            if p['sampletype'] in amax:
-                acrit[p['sampletype']].append(p['Acrit'])
-                amax[p['sampletype']].append(p['Amax'])
-                dacrit[p['sampletype']].append(p['dAmax'])
-            else:
-                acrit[p['sampletype']] = [p['Acrit']]
-                amax[p['sampletype']] = [p['Amax']]
-                dacrit[p['sampletype']] = [p['dAmax']]
-
-    colors = ['k', 'b', 'g', 'r', 'm', 'y']
-    legend = []
-    fig, (a1, a2) = plt.subplots(2, 1)
-    for (p, col) in zip(amax, colors):
-        a1.scatter(acrit[p], amax[p], c = col)
-        a2.scatter(acrit[p], amax[p], c = col)
-        legend.append(p)
-    x1,x2,y1,y2 = a2.axis()
-    a1.set_title("Amax v. Acrit")
-    #a2.set_xlim((0, 2.5))
-    a2.set_title("Zoomed in on the main cluster")
-    a1.legend(legend, loc=4, title="Sample Type")
-    a2.set_xlabel("Acrit (mm)")
-    a1.set_ylabel("Amax (mm)")
-    a2.set_ylabel("Amax (mm)")
-    plt.show()
-
-def dAintegration(p):
+def dAintegration(p, a_right = 100):
     tsplit, asplit, a5, a10 = amplitude5and10(p)
-    tdAmax, Acrit, dAmax = maxdeltaamplitude(p)
+    #tdAmax, Acrit, dAmax = maxdeltaamplitude(p)
     ds = deltaamplitude(p['data'])
-    f_threshold = lambda d: d[0] >= tsplit #and d[0] <= tdAmax
+    f_threshold = lambda d: d[0] >= tsplit and d[1] < a_right#and d[0] <= tdAmax
     df = [i for i in filter(f_threshold, ds)]
     s = sorted(df, key=lambda x: x[1])
     
@@ -427,23 +364,15 @@ def squared_error(amplitudes, dAs, model, a_at_max_dA = numpy.Inf):
             n = n + 1
             cum = cum + (mv - da)**2
     return cum/n
-
-# def fit_best_dAvA_curve(amplitudes, dAs):
-#     avals = numpy.linspace(0.05, 5, 100)
-#     bvals = numpy.linspace(0.001, 0.5, 100)
-# #    errs = numpy.zeros((len(avals), len(bvals)))
-#     abest, bbest = 0,0
-#     minval = numpy.Inf
-#     for a,i in zip(avals, range(len(avals))):
-#         for b,j in zip(bvals, range(len(bvals))):
-#             model = solve_dA(a, b)
-#             #errs[i,j] = squared_error(amplitudes, dAs, model)
-#             v = squared_error(amplitudes, dAs, model)
-#             if v < minval:
-#                 minval = v
-#                 abest, bbest = a, b 
-#     return abest, bbest, minval
-
+    
+def corr_coef(amplitudes, dAs, model):
+    m = numpy.mean(dAs)
+    sst = 0
+    sse = 0
+    for da,damodel in zip(dAs, model(amplitudes)):
+        sst = sst + (da - m)**2
+        sse = sse + (da - damodel)**2
+    return 1 - (sse / sst)
 
 def model_gradient(a, b, modelerror, amplitudes, dAs, Acrit=numpy.Inf):
     step = 0.00005
@@ -473,12 +402,12 @@ def fit_best_dAvA_curve(amplitudes, dAs, a_at_damax=numpy.Inf):
     print(aold, bold, e)
     modelold = solve_dA(aold, bold)
     errold = squared_error(amplitudes, dAs, modelold, a_at_damax)
-    precision = 0.001
+    precision = 0.002
     da, db = model_gradient(aold, bold, errold, amplitudes, dAs, a_at_damax)
     delta = numpy.sqrt(da**2 + db**2)
     i = 0
     step = 0.0005
-    while delta > precision and i < 10000:
+    while delta > precision and i < 12000:
         aold = aold - step * da
         bold = bold - step * db
         modelold = solve_dA(aold, bold)
@@ -495,12 +424,14 @@ def data_after_split(p):
     return [(t, a) for t,a in p['data'] if t >= tsplit]
 
 def fit_best(p):
-    d = data_after_split(p)
+    #d = data_after_split(p)
+    d = p['data']
     dAs = deltaamplitude(d)
     return fit_best_dAvA_curve([a for t,a,da in dAs], [da for t,a,da in dAs])
 
 def fit_best_uptoAcrit(p, amount_after_Acrit = 0):
-    d = data_after_split(p)
+    #d = data_after_split(p)
+    d = p['data']
     dAs = deltaamplitude(d)
     tdAmax, Acrit, dAmax = maxdeltaamplitude(p)
     amps = [a for t,a,da in dAs if a <= Acrit + amount_after_Acrit]
@@ -518,8 +449,90 @@ def plot_best_fit(p):
 def calcExpectedAmax(a, b):
     return (2*a*1.20206)/b**3
 
+def numericIntegrationOfModel(model, x1, x2):
+    n = 1000
+    delta = (x2 - x1) / n
+    x = numpy.linspace(x1, x2, n)
+    cum = 0
+    y = model(x)
+    for i in range(1, n):
+        y1 = y[i-1]
+        y2 = y[i]
+        cum += delta * 0.5 * (y1 + y2)
+    return cum
+
 def grabAreaStuff(p):
     a,b,err = fit_best_uptoAcrit(p, 0)
-    maxA = maxamplitude(p)
-    return ((a,b), maxA[1], calcExpectedAmax(a,b))
+    #d = data_after_split(p)
+    d=p['data']
+    dAs = deltaamplitude(d)
+    r2 = corr_coef([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a,b))
+    return ((a,b), dAintegration(p)[0], calcExpectedAmax(a,b), numericIntegrationOfModel(solve_dA(a,b), 0.000001, 100), r2)
     
+# "patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, numerical integration to 100mm, analytical integral of model"
+
+def area_details(p):
+    e = simpledetails(p)
+    a1, b1, e1 = fit_best(p)
+    a2, b2, e2 = fit_best_uptoAcrit(p)
+    #d = data_after_split(p)
+    d=p['data']
+    dAs = deltaamplitude(d)
+    r21 = corr_coef([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a1, b1))
+    r22 = corr_coef([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a2, b2))
+    area = dAintegration(p)[0]
+    n1 = numericIntegrationOfModel(solve_dA(a1, b1), 0.000001, 100)
+    n2 = numericIntegrationOfModel(solve_dA(a2, b2), 0.000001, 100)
+    c1 = calcExpectedAmax(a1, b1)
+    c2 = calcExpectedAmax(a2, b2)
+    return (area, (a1, b1, r21, n1, c1), (a2, b2, r22, n2, c2))
+    #s = ', '.join([str(n), str(makeexceldatestring(e['date'])), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']))])
+
+def stringify_area_stuffs(p):
+    area, full, partial = area_details(p)
+    e = simpledetails(p)
+    name = e['fullname']
+    if isinstance(name, (int, float, complex)):
+        name = int(name)
+        
+    s = ', '.join([str(name), str(makeexceldatestring(e['date'])), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']), str(area), str(full[0]), str(full[1]), str(full[2]), str(full[3]), str(full[4]), str(partial[0]), str(partial[1]), str(partial[2]), str(partial[3]), str(partial[4])])
+    meta = "patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, r2, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, r2, numerical integration to 100mm, analytical integral of model"
+    return meta, s
+    
+def write_function_to_spreadsheet(filename, sheet, patient_fn, sampletype = "all"):
+    outfile = open(filename, 'w')
+    if sampletype == "all":
+        g = patientgenerator(sheet, patient_fn)
+    else:
+        g = patientgenerator(sheet, patient_fn, lambda p: p['sampletype'] == sampletype)
+        
+    d = next(g)
+    outfile.write(d[0] + "\n")
+    fn = lambda x: outfile.write(x[1] + "\n")
+    fn(d)
+    [fn(l) for l in g]
+    
+    outfile.close()
+
+foo="""""
+def tabulate_data(sheet, outfilename, sampletype):
+    g = patientgenerator(sheet, simpledetails, lambda p: p['sampletype'] == sampletype)
+    grouped_patients = groupbypatient([p for p in g])
+    names = grouped_patients.keys()
+    names = sorted(names)
+    
+    outfile = open(outfilename, 'w')
+    outfile.write("patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, numerical integration to 100mm, analytical integral of model\n")
+
+    for n in names:
+        if isinstance(n, (int, float, complex)):
+            n = int(n)
+        for e in grouped_patients[n]:
+            try:
+                grabareastuff
+                s = ', '.join([str(n), str(makeexceldatestring(e['date'])), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']))])
+                outfile.write(s + "\n")
+            except:
+                print("Problem with patient: %s, %s, %s, %s" % (str(e['fullname']), makeexceldatestring(e['date']), e['sampletype'], e['description']))
+    outfile.close()
+"""
