@@ -478,14 +478,16 @@ def area_details(p):
     #d = data_after_split(p)
     d=p['data']
     dAs = deltaamplitude(d)
-    r21 = corr_coef([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a1, b1))
-    r22 = corr_coef([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a2, b2))
+    #r21 = corr_coef([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a1, b1))
+    rmse1 = numpy.sqrt(squared_error([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a1, b1), numpy.Inf))
+    rmse2 = numpy.sqrt(squared_error([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a2, b2), numpy.Inf))
+    #r22 = corr_coef([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a2, b2))
     area = dAintegration(p)[0]
     n1 = numericIntegrationOfModel(solve_dA(a1, b1), 0.000001, 100)
     n2 = numericIntegrationOfModel(solve_dA(a2, b2), 0.000001, 100)
     c1 = calcExpectedAmax(a1, b1)
     c2 = calcExpectedAmax(a2, b2)
-    return (area, (a1, b1, r21, n1, c1), (a2, b2, r22, n2, c2))
+    return (area, (a1, b1, rmse1, n1, c1), (a2, b2, rmse2, n2, c2))
     #s = ', '.join([str(n), str(makeexceldatestring(e['date'])), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']))])
 
 def stringify_area_stuffs(p):
@@ -496,7 +498,7 @@ def stringify_area_stuffs(p):
         name = int(name)
         
     s = ', '.join([str(name), str(makeexceldatestring(e['date'])), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']), str(area), str(full[0]), str(full[1]), str(full[2]), str(full[3]), str(full[4]), str(partial[0]), str(partial[1]), str(partial[2]), str(partial[3]), str(partial[4])])
-    meta = "patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, r2, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, r2, numerical integration to 100mm, analytical integral of model"
+    meta = "patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, RMSE, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, RMSE, numerical integration to 100mm, analytical integral of model"
     return meta, s
     
 def write_function_to_spreadsheet(filename, sheet, patient_fn, sampletype = "all"):
