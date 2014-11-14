@@ -66,7 +66,7 @@ def maxamplitude(p):
     f_threshold = lambda t: t > min_threshold and t < max_threshold
     return max([(t,d) for (t,d) in p['data'] if f_threshold(t)], key=lambda x: x[1])
 
-amount_after_acrit = 10
+amount_after_acrit = 15/60
 
 def plottimeseriestoaxes(p, ax):
     m = maxdeltaamplitude(p)
@@ -79,9 +79,9 @@ def plottimeseriestoaxes(p, ax):
     d=p['data']
     dAs = deltaamplitude(d)
     tdAmax, Acrit, dAmax = maxdeltaamplitude(p)
-    amps = [a for t,a,da in dAs if a <= Acrit+amount_after_acrit]
-    ts = [t for t,a,da in dAs if a <= Acrit + amount_after_acrit]
-    #ax.plot(ts, amps, c='r', linewidth=3)
+    amps = [a for t,a,da in dAs if t <= tdAmax+amount_after_acrit]
+    ts = [t for t,a,da in dAs if t <= tdAmax + amount_after_acrit]
+    ax.plot(ts, amps, c='r', linewidth=3)
     if m != None:
         ax.scatter(m[0], m[1], c='r')
         s = "Acrit (dA = %.2f, A = %.2f)" % (m[2], m[1])
@@ -115,12 +115,15 @@ def plotdavatoaxes(p, ax):
     dA = deltaamplitude(p['data'])
     if (dA == None):
         return
+    tdAmax, Acrit, dAmax = maxdeltaamplitude(p)
     ax.scatter([a for (t,a,da) in dA], [da for (t,a,da) in dA])
+    ax.scatter([a for (t,a,da) in dA if t <= tdAmax+amount_after_acrit], [da for (t,a,da) in dA if t <= tdAmax+amount_after_acrit], c='r')
     area, d = dAintegration(p)
     plotbestfit(p, ax, numpy.Inf, 'g', False)
-    plotbestfit(p, ax, 0, 'r', True)
+    plotbestfit(p, ax, 0, 'b', False)
+    plotbestfit(p, ax, amount_after_acrit, 'r', True)
     #plotbestfit(p, ax, amount_after_acrit, 'r', True)
-    ax.legend(['Fit up to Amax', 'Fit up to Acrit'])
+    ax.legend(['Fit up to Amax', 'Fit up to Acrit', 'Fit up to Acrit + 15 sec'])
     #ax.fill_between([a for (t,a,da) in d], [da for (t,a,da) in d], 0, facecolor='r', alpha=0.7)
     #foo=(d[-1][1]/2, 0)
     #ax.annotate("Area from split to crit: %.2f"%(area), xy=foo)
@@ -434,8 +437,8 @@ def fit_best_uptoAcrit(p, amount_after_Acrit = 0):
     d = p['data']
     dAs = deltaamplitude(d)
     tdAmax, Acrit, dAmax = maxdeltaamplitude(p)
-    amps = [a for t,a,da in dAs if a <= Acrit + amount_after_Acrit]
-    davals = [da for t,a,da in dAs if a <= Acrit + amount_after_Acrit]
+    amps = [a for t,a,da in dAs if t <= tdAmax + amount_after_Acrit]
+    davals = [da for t,a,da in dAs if t <= tdAmax + amount_after_Acrit]
     return fit_best_dAvA_curve(amps, davals)
 
 def plot_best_fit(p):
@@ -475,30 +478,34 @@ def area_details(p):
     e = simpledetails(p)
     a1, b1, e1 = fit_best(p)
     a2, b2, e2 = fit_best_uptoAcrit(p)
+    a3, b3, e3 = fit_best_uptoAcrit(p, amount_after_acrit)
     #d = data_after_split(p)
     d=p['data']
     dAs = deltaamplitude(d)
     #r21 = corr_coef([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a1, b1))
     rmse1 = numpy.sqrt(squared_error([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a1, b1), numpy.Inf))
     rmse2 = numpy.sqrt(squared_error([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a2, b2), numpy.Inf))
+    rmse3 = numpy.sqrt(squared_error([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a3, b3), numpy.Inf))
     #r22 = corr_coef([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a2, b2))
     area = dAintegration(p)[0]
     n1 = numericIntegrationOfModel(solve_dA(a1, b1), 0.000001, 100)
     n2 = numericIntegrationOfModel(solve_dA(a2, b2), 0.000001, 100)
+    n3 = numericIntegrationOfModel(solve_dA(a3, b3), 0.000001, 100)
     c1 = calcExpectedAmax(a1, b1)
     c2 = calcExpectedAmax(a2, b2)
-    return (area, (a1, b1, rmse1, n1, c1), (a2, b2, rmse2, n2, c2))
+    c3 = calcExpectedAmax(a3, b3)
+    return (area, (a1, b1, rmse1, n1, c1), (a2, b2, rmse2, n2, c2), (a3, b3, rmse3, n3, c3))
     #s = ', '.join([str(n), str(makeexceldatestring(e['date'])), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']))])
 
 def stringify_area_stuffs(p):
-    area, full, partial = area_details(p)
+    area, full, partial, partial2 = area_details(p)
     e = simpledetails(p)
     name = e['fullname']
     if isinstance(name, (int, float, complex)):
         name = int(name)
         
-    s = ', '.join([str(name), str(makeexceldatestring(e['date'])), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']), str(area), str(full[0]), str(full[1]), str(full[2]), str(full[3]), str(full[4]), str(partial[0]), str(partial[1]), str(partial[2]), str(partial[3]), str(partial[4])])
-    meta = "patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, RMSE, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, RMSE, numerical integration to 100mm, analytical integral of model"
+    s = ', '.join([str(name), str(makeexceldatestring(e['date'])), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']), str(area), str(full[0]), str(full[1]), str(full[2]), str(full[3]), str(full[4]), str(partial[0]), str(partial[1]), str(partial[2]), str(partial[3]), str(partial[4]), str(partial2[0]), str(partial2[1]), str(partial2[2]), str(partial2[3]), str(partial2[4])])
+    meta = "patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, RMSE, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, RMSE, numerical integration to 100mm, analytical integral of model, a fit to Acrit+15sec, b fit to Acrit+15sec, RMSE, numerical integration to 100mm, analytical integral of model"
     return meta, s
     
 def write_function_to_spreadsheet(filename, sheet, patient_fn, sampletype = "all"):
