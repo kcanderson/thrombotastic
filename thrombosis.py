@@ -268,11 +268,14 @@ def plotamplitudedomaindata(p):
 
 def superplot(p):
     fig, (a1, a2) = plt.subplots(2, 1)
-    plottimeseriestoaxes(p, a1)
-    plotdavatoaxes(p, a2)
     title = "Patient ID: %s, date: %s, sample type: %s, description: %s" %(str(p['fullname']), str(p['date']), p['sampletype'], p['description'])
-    return fig, title
-
+    try:
+        plottimeseriestoaxes(p, a1)
+        plotdavatoaxes(p, a2)
+        return fig, title
+    except:
+        return None, title
+        
 def superplot_tk(p):
     fig, (a1, a2) = plt.subplots(2, 1)
     plottimeseriestoaxes(p, a1)
@@ -289,8 +292,11 @@ def findallpatiententries(sheet, patientid, f=simpledetails, filter_fn = lambda 
 def makePDF(fig_generator, outfilename):
     pp = PdfPages(outfilename)
     for f, title in fig_generator:
-        f.suptitle(title)
-        pp.savefig(f)
+        if not f == None:
+            f.suptitle(title)
+            pp.savefig(f)
+        else:
+            print("problem with figure. " + title)
             
     pp.close()
     plt.close('all')
@@ -550,9 +556,35 @@ def stringify_area_stuffs(p):
     if isinstance(name, (int, float, complex)):
         name = int(name)
         
+    s = ', '.join([str(name), str(e['date']), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']), str(area), str(full[0]), str(full[1]), str(full[2]), str(full[3]), str(full[4]), str(partial[0]), str(partial[1]), str(partial[2]), str(partial[3]), str(partial[4]), str(partial2[0]), str(partial2[1]), str(partial2[2]), str(partial2[3]), str(partial2[4])])
+    meta = "patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, RMSE, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, RMSE, numerical integration to 100mm, analytical integral of model, a fit to Acrit+15sec, b fit to Acrit+15sec, RMSE, numerical integration to 100mm, analytical integral of model"
+    return meta, s
+    
+def stringify_area_stuffs_excel(p):
+    area, full, partial, partial2 = area_details(p)
+    e = simpledetails(p)
+    name = e['fullname']
+    if isinstance(name, (int, float, complex)):
+        name = int(name)
+        
     s = ', '.join([str(name), str(makeexceldatestring(e['date'])), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']), str(area), str(full[0]), str(full[1]), str(full[2]), str(full[3]), str(full[4]), str(partial[0]), str(partial[1]), str(partial[2]), str(partial[3]), str(partial[4]), str(partial2[0]), str(partial2[1]), str(partial2[2]), str(partial2[3]), str(partial2[4])])
     meta = "patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, RMSE, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, RMSE, numerical integration to 100mm, analytical integral of model, a fit to Acrit+15sec, b fit to Acrit+15sec, RMSE, numerical integration to 100mm, analytical integral of model"
     return meta, s
+
+def write_function_csv(outfilename, patient_generator):
+    outfile = open(outfilename, 'w')
+    d = next(patient_generator)
+    outfile.write(d[0] + "\n")
+    fn = lambda x: outfile.write(x[1] + "\n")
+    fn(d)
+    while True:
+        try:
+            d = next(patient_generator)
+            fn(d)
+        except:
+            print("Problem with " + str(d['fullname']))       
+    #[fn(l) for l in patient_generator]
+    outfile.close()
     
 def write_function_to_spreadsheet(filename, sheet, patient_fn, sampletype = "all"):
     outfile = open(filename, 'w')
