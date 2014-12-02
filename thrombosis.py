@@ -2,7 +2,10 @@ import xlrd
 import numpy
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from functools import partial
+amount_after_acrit = 15/60
 
+## Parsing routines ##
 def opensheet(excel_file_name):
     wb = xlrd.open_workbook(excel_file_name)
     return wb.sheets()[0]
@@ -21,14 +24,14 @@ def nextpatient(sheet, start_line):
     t = 0
     while i < sheet.nrows and sheet.cell(i, 0).value == '':
         t = sheet.cell(i,7).value/60.0
-        v = max([0.125, sheet.cell(i,8).value/2.0])
+        #v = max([0.125, sheet.cell(i,8).value/2.0])
         d.append((t, sheet.cell(i,8).value / 2))
         i = i + 1
     return (i, {'fullname': name, 'data': d, 'procedure': procedure,
                 'channel': channel, 'sampletype': sampletype, 
                 'description': description, 'date': date})
 
-def patientgenerator(sheet, f = lambda x:x, filter_fn = lambda x:True):
+def tracingsheetgenerator(sheet, f = lambda x:x, filter_fn = lambda x:True):
     last_row = sheet.nrows
     row = 1
     while row < (last_row - 1):
@@ -36,8 +39,40 @@ def patientgenerator(sheet, f = lambda x:x, filter_fn = lambda x:True):
         if filter_fn(p):
             yield f(p)
 
+def coagulate(meta, data):
+    return {'fullname': meta[0],
+            'procedure': meta[1],
+            'channel': meta[2],
+            'sampletype': meta[3],
+            'description': meta[4],
+            'date': meta[5].strip(),
+            'data': data}
+
+def tracingtextgenerator(filename ,f = lambda x:x, filter_fn = lambda x:True):
+    file = open(filename)
+    file.readline()
+    meta = file.readline().split('\t')
+    data = []
+    for line in file:
+        if line.strip() != '':
+            l = line.split('\t')
+            if l[0] != '':
+                curr = coagulate(meta, data)
+                if filter_fn(curr):
+                    yield f(curr)
+                meta = l
+                data = []
+            else:
+                data.append((float(l[7]) / 60, float(l[8]) / 2))
+    #except:
+    #foo = line.split('\t')
+     #   print(foo[0], foo[1], foo[2], foo[3])
+    #print("whoa: " + line.split('\t'))
+## -- ##
+
+## 
 def deltaamplitude(data):
-    min_threshold = 0#15 / 60.0 
+    min_threshold = 0
     max_threshold = 60
     a_threshold = -1000
     f_threshold = lambda t,a,da: ((da > 0) and (a > a_threshold) and (t > min_threshold) and (t < max_threshold))
@@ -52,6 +87,13 @@ def maxdeltaamplitude(p):
     #return (m[0][0], m[0][1], m[1][1])
     return m
 
+def maxamplitude(p):
+    min_threshold = 15/60.0
+    max_threshold = 60
+    f_threshold = lambda t: t > min_threshold and t < max_threshold
+    return max([(t,d) for (t,d) in p['data'] if f_threshold(t)], key=lambda x: x[1])
+
+
 def writepatientinfo(writer_file, p):
     m = maxdeltaamplitude(p)
     s = ', '.join([str(int(p['fullname'])), str(p['date']), str(p['sampletype']), str(p['description']), str(m[2]), str(m[1])])
@@ -60,14 +102,86 @@ def writepatientinfo(writer_file, p):
 def patientwriter(writer_file):
     return lambda p: writepatientinfo(writer_file, p)
 
-def maxamplitude(p):
-    min_threshold = 15/60.0
-    max_threshold = 60
-    f_threshold = lambda t: t > min_threshold and t < max_threshold
-    return max([(t,d) for (t,d) in p['data'] if f_threshold(t)], key=lambda x: x[1])
 
-amount_after_acrit = 15/60
 
+def splittime(p):
+    c = 0
+    tsplit = 0
+    asplit = 0
+    split_thresh = 0.2
+    for (t, a) in p['data']:
+        if a > split_thresh:
+            c = c+1
+            if c == 1:
+                tsplit = t
+                asplit = a
+            if c > 5:
+                return (tsplit, asplit)
+        else:
+            c = 0
+            a = 0
+    return p['data'][-1]
+
+def amplitude5and10(p):
+    tsplit, asplit = splittime(p)
+    try:
+        a5 = next(filter(lambda d: d[0] >= tsplit + 5, p['data']))
+        a10 = next(filter(lambda d: d[0] >= tsplit + 10, p['data']))
+    except:
+        a5 = p['data'][-1]
+        a10 = p['data'][-1]
+    return (tsplit, asplit, a5[1], a10[1])
+
+def salientdetails(p):
+    m = maxdeltaamplitude(p)
+    maxA = maxamplitude(p)
+    area, ds = dAintegration(p)
+    (tsplit, asplit, a5, a10) = amplitude5and10(p)
+    a,b,minval = fit_best(p)
+    out = {'fullname':p['fullname'], 
+           'date': p['date'],
+           'sampletype': p['sampletype'],
+           'description': p['description'],
+           'Amax': maxA[1],
+           'tmax': maxA[0],
+           'tsplit': tsplit,
+           'asplit': asplit,
+           'a5': a5,
+           'a10': a10,
+           'dASum': area,
+           'aModelParam': a,
+           'bModelParam': b}
+    if m != None:
+        out['dAmax'] = m[2]
+        out['Acrit'] = m[1]
+        out['tcrit'] = m[0]
+    else:
+        print("No dA values. Problem with this patient: %i %s %s %s"%(out['fullname'], makeexceldatestring(out['date']), out['sampletype'], out['description']))
+    return out
+
+def simpledetails(p):
+    m = maxdeltaamplitude(p)
+    maxA = maxamplitude(p)
+    (tsplit, asplit, a5, a10) = amplitude5and10(p)
+    out = {'fullname':p['fullname'], 
+           'date': p['date'],
+           'sampletype': p['sampletype'],
+           'description': p['description'],
+           'Amax': maxA[1],
+           'tmax': maxA[0],
+           'tsplit': tsplit,
+           'asplit': asplit,
+           'a5': a5,
+           'a10': a10}
+    if m != None:
+        out['dAmax'] = m[2]
+        out['Acrit'] = m[1]
+        out['tcrit'] = m[0]
+    else:
+        print("No dA values. Problem with this patient: %s %s %s %s"%(str(out['fullname']), out['date'], out['sampletype'], out['description']))
+    return out
+
+## Plotting routines ##
 def plottimeseriestoaxes(p, ax):
     m = maxdeltaamplitude(p)
     maxA = maxamplitude(p)
@@ -146,87 +260,24 @@ def plottimeseriesdata(p):
     plottimeseriestoaxes(p, ax)
     plt.show()
 
+def plotamplitudedomaindata(p):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    plotdavatoaxes(p, ax)
+    plt.show()
+
+def superplot(p):
+    fig, (a1, a2) = plt.subplots(2, 1)
+    plottimeseriestoaxes(p, a1)
+    plotdavatoaxes(p, a2)
+    title = "Patient ID: %s, date: %s, sample type: %s, description: %s" %(str(p['fullname']), str(p['date']), p['sampletype'], p['description'])
+    return fig, title
+
 def superplot_tk(p):
     fig, (a1, a2) = plt.subplots(2, 1)
     plottimeseriestoaxes(p, a1)
     plotdavatoaxes(p, a2)
     plt.show()
-
-def splittime(p):
-    c = 0
-    tsplit = 0
-    asplit = 0
-    split_thresh = 0.2
-    for (t, a) in p['data']:
-        if a > split_thresh:
-            c = c+1
-            if c == 1:
-                tsplit = t
-                asplit = a
-            if c > 5:
-                return (tsplit, asplit)
-        else:
-            c = 0
-            a = 0
-    return p['data'][-1]
-def amplitude5and10(p):
-    tsplit, asplit = splittime(p)
-    try:
-        a5 = next(filter(lambda d: d[0] >= tsplit + 5, p['data']))
-        a10 = next(filter(lambda d: d[0] >= tsplit + 10, p['data']))
-    except:
-        a5 = p['data'][-1]
-        a10 = p['data'][-1]
-    return (tsplit, asplit, a5[1], a10[1])
-
-def salientdetails(p):
-    m = maxdeltaamplitude(p)
-    maxA = maxamplitude(p)
-    area, ds = dAintegration(p)
-    (tsplit, asplit, a5, a10) = amplitude5and10(p)
-    a,b,minval = fit_best(p)
-    out = {'fullname':p['fullname'], 
-           'date': p['date'],
-           'sampletype': p['sampletype'],
-           'description': p['description'],
-           'Amax': maxA[1],
-           'tmax': maxA[0],
-           'tsplit': tsplit,
-           'asplit': asplit,
-           'a5': a5,
-           'a10': a10,
-           'dASum': area,
-           'aModelParam': a,
-           'bModelParam': b}
-    if m != None:
-        out['dAmax'] = m[2]
-        out['Acrit'] = m[1]
-        out['tcrit'] = m[0]
-    else:
-        print("No dA values. Problem with this patient: %i %s %s %s"%(out['fullname'], makeexceldatestring(out['date']), out['sampletype'], out['description']))
-    return out
-
-def simpledetails(p):
-    m = maxdeltaamplitude(p)
-    maxA = maxamplitude(p)
-    (tsplit, asplit, a5, a10) = amplitude5and10(p)
-    out = {'fullname':p['fullname'], 
-           'date': p['date'],
-           'sampletype': p['sampletype'],
-           'description': p['description'],
-           'Amax': maxA[1],
-           'tmax': maxA[0],
-           'tsplit': tsplit,
-           'asplit': asplit,
-           'a5': a5,
-           'a10': a10}
-    if m != None:
-        out['dAmax'] = m[2]
-        out['Acrit'] = m[1]
-        out['tcrit'] = m[0]
-    else:
-        print("No dA values. Problem with this patient: %s %s %s %s"%(str(out['fullname']), makeexceldatestring(out['date']), out['sampletype'], out['description']))
-    return out
 
 def findallpatiententries(sheet, patientid, f=simpledetails, filter_fn = lambda x:True):
     f_patient = lambda p: p['fullname'] == patientid
@@ -234,7 +285,17 @@ def findallpatiententries(sheet, patientid, f=simpledetails, filter_fn = lambda 
     g = patientgenerator(sheet, f, lambda p: f_patient(p) and filter_fn(p))
     return [m for m in g]
 
-def makePDFpage(pdfcontext, patientid,  sheet, filter_fn = lambda x:True):
+## PDF generation routines ##
+def makePDF(fig_generator, outfilename):
+    pp = PdfPages(outfilename)
+    for f, title in fig_generator:
+        f.suptitle(title)
+        pp.savefig(f)
+            
+    pp.close()
+    plt.close('all')
+
+def makePDFpage(pdfcontext, patientid, sheet, filter_fn = lambda x:True):
     patients = findallpatiententries(sheet, patientid, lambda p:p, filter_fn)
     patients = sorted(patients, key=lambda x: x['date'])
     for p in patients:
@@ -243,7 +304,7 @@ def makePDFpage(pdfcontext, patientid,  sheet, filter_fn = lambda x:True):
         fig.suptitle(title)
         plottimeseriestoaxes(p, ax1)
         plotdavatoaxes(p, ax2)
-        pdfcontext.savefig(fig)
+        ppdfcontext.savefig(fig)
         
 def makefullPDF(pdffilename, sheet, filter_fn = lambda x:True):
     g = patientgenerator(sheet, simpledetails, filter_fn)
@@ -253,7 +314,9 @@ def makefullPDF(pdffilename, sheet, filter_fn = lambda x:True):
         makePDFpage(pp, i, sheet, filter_fn)
     pp.close()
     plt.close('all')
-        
+
+## -- ##
+    
 def groupbypatient(patients):
     d = {}
     for p in patients:
@@ -274,7 +337,6 @@ def makeexceldatestring(datethingie):
 def writeoutgroupedpatients(grouped_patients, outfilename):
     names = grouped_patients.keys()
     names = sorted(names)
-    
     outfile = open(outfilename, 'w')
     outfile.write("patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), A5 (mm), A10 (mm), dA integral from split to crit, fit model param a, fit model param b\n")
     for n in names:
@@ -314,20 +376,6 @@ def groupbysampletype(patients):
         else:
             d[p['sampletype']] = [p]
     return d
-
-def plotgroups(grouped_patients):
-    colors = ['k', 'b', 'g', 'r', 'm', 'y']
-    legend_values = []
-    for (k, col) in zip(grouped_patients.keys(), colors):
-        x = [i['Acrit'] for i in grouped_patients[k]]
-        y = [i['dAmax'] for i in grouped_patients[k]]
-        plt.scatter(x, y, c=col)#, alpha=0.75)
-        legend_values.append(k)
-    plt.xlabel('Amplitude')
-    plt.ylabel('Acrit')
-    plt.legend(legend_values)
-    plt.title("Acrit versus amplitude grouped by sample type")
-    plt.show()
 
 def dAintegration(p, a_right = 100):
     tsplit, asplit, a5, a10 = amplitude5and10(p)
@@ -427,13 +475,11 @@ def data_after_split(p):
     return [(t, a) for t,a in p['data'] if t >= tsplit]
 
 def fit_best(p):
-    #d = data_after_split(p)
     d = p['data']
     dAs = deltaamplitude(d)
     return fit_best_dAvA_curve([a for t,a,da in dAs], [da for t,a,da in dAs])
 
 def fit_best_uptoAcrit(p, amount_after_Acrit = 0):
-    #d = data_after_split(p)
     d = p['data']
     dAs = deltaamplitude(d)
     tdAmax, Acrit, dAmax = maxdeltaamplitude(p)
@@ -449,7 +495,7 @@ def plot_best_fit(p):
     plt.plot(avals, solve_dA(a,b)(avals))
     plt.show()
 
-def calcExpectedAmax(a, b):
+def calcExpectedArea(a, b):
     return (2*a*1.20206)/b**3
 
 def numericIntegrationOfModel(model, x1, x2):
@@ -470,7 +516,7 @@ def grabAreaStuff(p):
     d=p['data']
     dAs = deltaamplitude(d)
     r2 = corr_coef([a for t,a,da in dAs], [da for t,a,da in dAs], solve_dA(a,b))
-    return ((a,b), dAintegration(p)[0], calcExpectedAmax(a,b), numericIntegrationOfModel(solve_dA(a,b), 0.000001, 100), r2)
+    return ((a,b), dAintegration(p)[0], calcExpectedArea(a,b), numericIntegrationOfModel(solve_dA(a,b), 0.000001, 100), r2)
     
 # "patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, numerical integration to 100mm, analytical integral of model"
 
@@ -491,9 +537,9 @@ def area_details(p):
     n1 = numericIntegrationOfModel(solve_dA(a1, b1), 0.000001, 100)
     n2 = numericIntegrationOfModel(solve_dA(a2, b2), 0.000001, 100)
     n3 = numericIntegrationOfModel(solve_dA(a3, b3), 0.000001, 100)
-    c1 = calcExpectedAmax(a1, b1)
-    c2 = calcExpectedAmax(a2, b2)
-    c3 = calcExpectedAmax(a3, b3)
+    c1 = calcExpectedArea(a1, b1)
+    c2 = calcExpectedArea(a2, b2)
+    c3 = calcExpectedArea(a3, b3)
     return (area, (a1, b1, rmse1, n1, c1), (a2, b2, rmse2, n2, c2), (a3, b3, rmse3, n3, c3))
     #s = ', '.join([str(n), str(makeexceldatestring(e['date'])), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']))])
 
@@ -523,25 +569,26 @@ def write_function_to_spreadsheet(filename, sheet, patient_fn, sampletype = "all
     
     outfile.close()
 
-foo="""""
-def tabulate_data(sheet, outfilename, sampletype):
-    g = patientgenerator(sheet, simpledetails, lambda p: p['sampletype'] == sampletype)
-    grouped_patients = groupbypatient([p for p in g])
-    names = grouped_patients.keys()
-    names = sorted(names)
-    
-    outfile = open(outfilename, 'w')
-    outfile.write("patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, numerical integration to 100mm, analytical integral of model\n")
+def profile_goodness(amounts, p):
+    area, d = dAintegration(p, 10000)
+    delts = []
+    for am in amounts:
+        a,b,e = fit_best_uptoAcrit(p, am)
+        delts.append((a, b, area, calcExpectedArea(a, b)))
+    return delts
 
-    for n in names:
-        if isinstance(n, (int, float, complex)):
-            n = int(n)
-        for e in grouped_patients[n]:
-            try:
-                grabareastuff
-                s = ', '.join([str(n), str(makeexceldatestring(e['date'])), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']))])
-                outfile.write(s + "\n")
-            except:
-                print("Problem with patient: %s, %s, %s, %s" % (str(e['fullname']), makeexceldatestring(e['date']), e['sampletype'], e['description']))
-    outfile.close()
-"""
+def profile_goodness_fit(amounts):
+    return partial(profile_goodness, amounts)
+
+
+# def foo(data, outfile, amounts):
+
+#     meta = "patient ID, date-time, sample type, description, empirical dA integration (mm^2), offset from Acrit (min), model a, model b, model dA integration (mm^2), difference between model and empirical area (mm^2)"
+#     for i in patientgenerator(sheet, simpledetails, 'CN'):
+#         s = ','.join(i['fullname'], makeexceldatetime(i['date']), i['sampletype'], 
+    
+#     for d in data:
+#         s = 
+#         for am in amounts:
+            
+
