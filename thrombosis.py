@@ -546,18 +546,19 @@ def area_details(p):
     c1 = calcExpectedArea(a1, b1)
     c2 = calcExpectedArea(a2, b2)
     c3 = calcExpectedArea(a3, b3)
-    return (area, (a1, b1, rmse1, n1, c1), (a2, b2, rmse2, n2, c2), (a3, b3, rmse3, n3, c3))
+    Amax,dAval=infer_Amax(solve_dA(a1,b1))
+    return (area, (a1, b1, rmse1, n1, c1), (a2, b2, rmse2, n2, c2), (a3, b3, rmse3, n3, c3), Amax)
     #s = ', '.join([str(n), str(makeexceldatestring(e['date'])), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']))])
 
 def stringify_area_stuffs(p):
-    area, full, partial, partial2 = area_details(p)
+    area, full, partial, partial2, Amaxinf = area_details(p)
     e = simpledetails(p)
     name = e['fullname']
     if isinstance(name, (int, float, complex)):
         name = int(name)
         
-    s = ', '.join([str(name), str(e['date']), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']), str(area), str(full[0]), str(full[1]), str(full[2]), str(full[3]), str(full[4]), str(partial[0]), str(partial[1]), str(partial[2]), str(partial[3]), str(partial[4]), str(partial2[0]), str(partial2[1]), str(partial2[2]), str(partial2[3]), str(partial2[4])])
-    meta = "patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, RMSE, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, RMSE, numerical integration to 100mm, analytical integral of model, a fit to Acrit+15sec, b fit to Acrit+15sec, RMSE, numerical integration to 100mm, analytical integral of model"
+    s = ', '.join([str(name), str(e['date']), str(e['sampletype']), str(e['description']), str(e['tmax']), str(e['Amax']), str(e['tcrit']), str(e['Acrit']), str(e['dAmax']), str(e['tsplit']), str(e['asplit']), str(area), str(full[0]), str(full[1]), str(full[2]), str(full[3]), str(full[4]), str(partial[0]), str(partial[1]), str(partial[2]), str(partial[3]), str(partial[4]), str(partial2[0]), str(partial2[1]), str(partial2[2]), str(partial2[3]), str(partial2[4]), str(Amaxinf)])
+    meta = "patient ID, date-time, sample type, description, t @ Amax (min), Amax (mm), tcrit (min), Acrit (mm), dAmax (mm), tsplit (min), Asplit (mm), empirical area under dA v A curve, a fit to Amax, b fit to Amax, RMSE, numerical integration to 100mm, analytical integral of model, a fit to Acrit, b fit to Acrit, RMSE, numerical integration to 100mm, analytical integral of model, a fit to Acrit+15sec, b fit to Acrit+15sec, RMSE, numerical integration to 100mm, analytical integral of model, inferred Amax (mm)"
     return meta, s
     
 def stringify_area_stuffs_excel(p):
@@ -582,7 +583,7 @@ def write_function_csv(outfilename, patient_generator):
             d = next(patient_generator)
             fn(d)
         except:
-            print("Problem with " + str(d['fullname']))       
+            print("Problem with ")       
     #[fn(l) for l in patient_generator]
     outfile.close()
     
@@ -612,7 +613,38 @@ def profile_goodness(amounts, p):
 def profile_goodness_fit(amounts):
     return partial(profile_goodness, amounts)
 
+def infer_Amax(model):
+    amps = numpy.linspace(0.001, 100, 100)
+    mx=max(zip(amps, model(amps)), key=lambda x:x[1])
+    A = mx[0]
+    dA = mx[1]
+    while dA > 0.01*mx[1]:
+        A = A + 0.01
+        dA = model([A])[0]
+    return (A,dA)
 
+def make_contour():
+    avals = numpy.linspace(0.001, 0.03, 50)
+    bvals = numpy.linspace(0.05, 0.15, 50)
+    x,y = numpy.meshgrid(avals, bvals)
+    z=[]
+    for i in avals:
+        l = []
+        for j in bvals:
+            m = solve_dA(i, j)
+            A,dA = infer_Amax(m)
+            print(A,dA)
+            #calcExpectedArea(i,j)
+            l.append(A)
+        z.append(l)
+    cs=plt.contourf(x,y,z, levels=range(5,145),aa=True)
+    plt.colorbar(cs, label="Predicted Amax (mm)")
+    plt.xlabel("Parameter a from model")
+    plt.ylabel("Parameter b from model")
+    #levs=[5,10,15,20,25,30,50,80,145]
+    #plt.clabel(cs, levels=levs, inline=1)
+    plt.show()
+    
 # def foo(data, outfile, amounts):
 
 #     meta = "patient ID, date-time, sample type, description, empirical dA integration (mm^2), offset from Acrit (min), model a, model b, model dA integration (mm^2), difference between model and empirical area (mm^2)"
