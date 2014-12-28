@@ -77,7 +77,7 @@ def deltaamplitude(data):
     a_threshold = -1000
     f_threshold = lambda t,a,da: ((da > 0) and (a > a_threshold) and (t > min_threshold) and (t < max_threshold))
     f_dA = lambda a1,a2: (a2[0], 0.5*(a2[1]+a1[1]), a2[1]-a1[1])
-    return [f_dA(d1, d2)  for (d1, d2) in zip(data[:-1], data[1:]) if f_threshold(f_dA(d1, d2)[0], f_dA(d1, d2)[1], f_dA(d1, d2)[2])]
+    return [f_dA(d1, d2) for (d1, d2) in zip(data[:-1], data[1:]) if f_threshold(f_dA(d1, d2)[0], f_dA(d1, d2)[1], f_dA(d1, d2)[2])]
 
 def maxdeltaamplitude(p):
     dA = deltaamplitude(p['data'])
@@ -101,8 +101,6 @@ def writepatientinfo(writer_file, p):
 
 def patientwriter(writer_file):
     return lambda p: writepatientinfo(writer_file, p)
-
-
 
 def splittime(p):
     c = 0
@@ -195,7 +193,7 @@ def plottimeseriestoaxes(p, ax):
     tdAmax, Acrit, dAmax = maxdeltaamplitude(p)
     amps = [a for t,a,da in dAs if t <= tdAmax+amount_after_acrit]
     ts = [t for t,a,da in dAs if t <= tdAmax + amount_after_acrit]
-    ax.plot(ts, amps, c='r', linewidth=3)
+    ##ax.plot(ts, amps, c='r', linewidth=3)
     if m != None:
         ax.scatter(m[0], m[1], c='r')
         s = "Acrit (dA = %.2f, A = %.2f)" % (m[2], m[1])
@@ -260,6 +258,15 @@ def plottimeseriesdata(p):
     plottimeseriestoaxes(p, ax)
     plt.show()
 
+def plottimedomain(p):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    try:
+        plottimeseriestoaxes(p, ax)
+    except:
+        fig = None
+    return (fig, p['fullname'] + "; " + p['sampletype'] + "; " + p['description'])
+    
 def plotamplitudedomaindata(p):
     fig = plt.figure()
     ax = fig.add_subplot(111)
@@ -383,6 +390,137 @@ def groupbysampletype(patients):
             d[p['sampletype']] = [p]
     return d
 
+
+def timeintegral(p, fun = lambda x: True):
+    data = filter(fun, p['data'])
+    t0,a0 = next(data)
+    acc = 0
+    for t1,a1 in data:
+        tdelta = t1 - t0
+        a = 0.5 * (a0 + a1)
+        acc = acc + a * tdelta
+        t0,a0 = t1,a1
+    return acc
+
+def ly30(p):
+    t, amax = maxamplitude(p)
+    f = lambda x: x[0] >= t and x[0] <= t + 30
+    actual = timeintegral(p, f)
+    extrapolated = amax * 30
+    return (extrapolated - actual) / extrapolated
+
+def indexanddelta(inhib, other):
+    a = other
+    b = inhib
+    tasplit,aasplit = splittime(a)
+    tbsplit,absplit = splittime(b)
+    ta = [x-tasplit for x,y in a['data'] if x >= tasplit]
+    tb = [x-tbsplit for x,y in b['data'] if x >= tbsplit]
+    ya = [y for x,y in a['data'] if x >= tasplit]
+    yb = [y for x,y in b['data'] if x >= tbsplit]
+    tamax,aamax = maxamplitude(a)
+    tbmax,abmax = maxamplitude(b)
+    adelt = deltaamplitude(a['data'])
+    foo = [(x,y,z) for x,y,z in adelt if x>=tbmax][:4]
+    t = tbmax - tbsplit
+    yval = [y for x,y in a['data'] if x >= tbmax][0]
+    da = (foo[-1][1] - foo[0][1])/(foo[-1][0]-foo[0][0])
+    return da
+
+def findmatchie(p, searchdatabase, findfn):
+    try:
+        gen = (i for i in searchdatabase() if findfn(p, i))
+        match = next(gen)
+    except:
+        print("Could not find match for " + p['fullname'])
+        match = None
+    return (p, match)
+
+def findmatchie2(p, sd, findfn, sd2, findfn2):
+    try:
+        gen = (i for i in sd() if findfn(p, i))
+        match = next(gen)
+    except:
+        print("Could not find match for " + p['fullname'])
+        match = None
+    try:
+        gen = (i for i in sd2() if findfn2(p, i))
+        match2 = next(gen)
+    except:
+        print("Could not find match for " + p['fullname'])
+        match2 = None
+    return (p, match, match2)
+
+def findmatch(generatormanufacturer, findfn):
+    return lambda p: findmatchie(p, generatormanufacturer, findfn)
+
+def findmatch2(gm, findfn, gm2, findfn2):
+    return lambda p: findmatchie2(p, gm, findfn, gm2, findfn2)
+
+def makehealthymatchedstring(patients):
+    metastring = ", ".join(["ID", "CRT Description", "CRT Amax (mm)", "CRT t at Amax (min)", "CRT LY30 (mm^2)", "CFF Description", "CFF Amax (mm)", "CFF t at Amax (min)", "CFF LY30 (mm^2)", "CFTX Description", "CFTX Amax (mm)", "CFTX t at Amax (min)", "CFTX LY30 (mm^2)", "CFTX dA @ CFF Amax (mm)"])
+    ck = patients[0]
+    ckd = simpledetails(ck)
+    s = ckd['fullname'].replace(","," ") + ', ' + ckd['description'].replace(","," ") + ', '
+    s = s + str(ckd['Amax']) + ', ' + str(ckd['tmax']) + ', '
+    s = s + str(ly30(ck)) + ', '
+    cff = patients[1]
+    if cff is not None:
+        cffd = simpledetails(cff)
+        s = s + cffd['description'].replace(",", " ") + ", "
+        s = s + str(cffd['Amax']) + ', ' + str(cffd['tmax']) + ', '
+        s = s + str(ly30(cff)) + ', '
+    else:
+        s = s + 'N/A, N/A, N/A, N/A, '
+    inhib = patients[2]
+    if inhib is not None:
+        inhibd = simpledetails(inhib)
+        s = s + inhibd['description'].replace(",", " ") + ", "
+        s = s + str(inhibd['Amax']) + ', ' + str(inhibd['tmax']) + ', '
+        s = s + str(ly30(inhib)) + ", "
+    else:
+        s = s + 'N/A, N/A, N/A, N/A, '
+    if inhib is not None and cff is not None:
+        try:
+            s = s + str(indexanddelta(cff, inhib))
+        except:
+            s = s + 'N/A'
+            print("Problem indexing and finding dA.")
+        
+    return (metastring, s)
+
+def healthygetmatched():
+    findfn = lambda a,b:a['fullname'].lower()==b['fullname'].lower() and a['description'][0:2].lower()==b['description'][0:2].lower()
+    gen_inhib = lambda : tracingtextgenerator("./data/inhib.crd")
+    gen_cff = lambda : tracingtextgenerator("./data/cff.crd")
+    ##g = tracingtextgenerator("./data/ck.crd", findmatch2(gen_cff, findfn, gen_inhib, findfn))
+    fn = lambda p: makehealthymatchedstring(findmatch2(gen_cff, findfn, gen_inhib, findfn)(p))
+    g = tracingtextgenerator("./data/ck.crd", fn)
+    write_function_csv("whoaglop.csv", g)
+
+def tapgetmatched():
+    cff_findfn = lambda a,b:a['fullname'].lower()==b['fullname'].lower() and b['sampletype'][:3]=="CFF" and b['description'].lower().find("txa")<0
+    inhib_findfn = lambda a,b:a['fullname'].lower()==b['fullname'].lower() and b['sampletype'][:3]=="CFF" and b['description'].lower().find("txa")>=0
+    gen_inhib = lambda : tracingtextgenerator("./data/Combat/tap.crd")
+    gen_cff = lambda : tracingtextgenerator("./data/Combat/tap.crd")
+    ##g = tracingtextgenerator("./data/ck.crd", findmatch2(gen_cff, findfn, gen_inhib, findfn))
+    fn = lambda p: makehealthymatchedstring(findmatch2(gen_cff, cff_findfn, gen_inhib, inhib_findfn)(p))
+    g = tracingtextgenerator("./data/Combat/tap.crd", fn, lambda p: p['sampletype'][:3]=="CRT")
+    write_function_csv("whoa.csv", g)
+    #return next(g)
+
+def combatgetmatched():
+    cff_findfn = lambda a,b:a['fullname'][:5].lower()==b['fullname'][:5].lower() and b['sampletype'][:3]=="CFF" and b['description'].find(a['description'])>=0 and b['description'].lower().find("txa")<0
+    inhib_findfn = lambda a,b:a['fullname'][:5].lower()==b['fullname'][:5].lower() and b['sampletype'][:3]=="CFF" and b['description'].find(a['description'])>=0 and b['description'].lower().find("txa")>=0
+
+    gen_inhib = lambda : tracingtextgenerator("./data/Combat/combat.crd")
+    gen_cff = lambda : tracingtextgenerator("./data/Combat/combat.crd")
+    ##g = tracingtextgenerator("./data/ck.crd", findmatch2(gen_cff, findfn, gen_inhib, findfn))
+    fn = lambda p: makehealthymatchedstring(findmatch2(gen_cff, cff_findfn, gen_inhib, inhib_findfn)(p))
+    g = tracingtextgenerator("./data/Combat/combat.crd", fn, lambda p: p['sampletype'][:3]=="CRT")
+    write_function_csv("whoa.csv", g)
+    #return next(g)
+    
 def dAintegration(p, a_right = 100):
     tsplit, asplit, a5, a10 = amplitude5and10(p)
     #tdAmax, Acrit, dAmax = maxdeltaamplitude(p)
@@ -390,7 +528,6 @@ def dAintegration(p, a_right = 100):
     f_threshold = lambda d: d[0] >= tsplit and d[1] < a_right#and d[0] <= tdAmax
     df = [i for i in filter(f_threshold, ds)]
     s = sorted(df, key=lambda x: x[1])
-    
     if len(s) < 2:
         print("danger: ", p['sampletype'])
     cum = 0
@@ -582,7 +719,7 @@ def write_function_csv(outfilename, patient_generator):
             d = next(patient_generator)
             fn(d)
         except:
-            print("Problem with " + str(d['fullname']))       
+            print("Problem")
     #[fn(l) for l in patient_generator]
     outfile.close()
     
@@ -613,8 +750,71 @@ def profile_goodness_fit(amounts):
     return partial(profile_goodness, amounts)
 
 
-# def foo(data, outfile, amounts):
 
+def foobar():
+    # g1 = groupbypatient(tracingtextgenerator("./data/inhib.crd"))
+    # g2 = groupbypatient(tracingtextgenerator("./data/cff.crd"))
+    # for i in g1:
+    #     try:
+    #         a = g1[i]
+    #         b = g2[i]
+    #         c = {}
+    #         d = {}
+    #         for j in a:
+    #             c[j['description'][:2]] = a[j]
+    #         for j in b:
+    #             d[j['description'][:2]] = b[j]
+    #         print(str(len(c)))
+    #         for x in c:
+    #             print(d[x]['description'])
+    #     except:
+    #         print("danger!: " + str(i))
+    pp = PdfPages("glop.pdf")
+    g1 = tracingtextgenerator("./data/inhib.crd")
+    i = 0
+    for a in g1:
+        #if i == 5:
+        #pp.close()
+        #return
+        i = i + 1
+        g2 = tracingtextgenerator("./data/cff.crd")
+        for b in g2:
+            if a['fullname']==b['fullname'] and a['description'][:2]==b['description'][:2]:
+                try:
+                    tasplit,aasplit = splittime(a)
+                    tbsplit,absplit = splittime(b)
+                    ta = [x-tasplit for x,y in a['data'] if x >= tasplit]
+                    tb = [x-tbsplit for x,y in b['data'] if x >= tbsplit]
+                    ya = [y for x,y in a['data'] if x >= tasplit]
+                    yb = [y for x,y in b['data'] if x >= tbsplit]
+                    tamax,aamax = maxamplitude(a)
+                    tbmax,abmax = maxamplitude(b)
+                    adelt = deltaamplitude(a['data'])
+                    #plt.plot((t, t), (abmax, yval[0]), 'k')
+                    foo = [(x,y,z) for x,y,z in adelt if x>=tbmax][:4]
+                    t = tbmax - tbsplit
+                    yval = [y for x,y in a['data'] if x >= tbmax][0]
+                    da = (foo[-1][1] - foo[0][1])/(foo[-1][0]-foo[0][0])
+                    fig = plt.figure()
+                    ax = fig.add_subplot(111)
+                    fig.suptitle(a['fullname'] + ", " + b['description'])
+                    ax.plot(ta, ya, 'g')
+                    ax.plot(tb, yb, 'b')
+                    ax.legend(( "Inhib", "CFF"), loc=4)
+                    ax.set_xlabel('Time (min)')
+                    ax.set_ylabel('Amplitude (mm)')
+                    ax.scatter(t, yval)
+                    ax.annotate("dA/dt=%.2fmm/min"%(da), xy=(t, yval-1))
+                    #plt.show()
+                    pp.savefig(fig)
+                except:
+                    print("Bah: " + a['fullname'])
+                    
+                break
+    pp.close()
+    plt.close('all')
+            #ax.annotate("Area from split to crit: %.2f"%(area), xy=foo)
+# def foo(data, outfile, amounts):
 #     meta = "patient ID, date-time, sample type, description, empirical dA integration (mm^2), offset from Acrit (min), model a, model b, model dA integration (mm^2), difference between model and empirical area (mm^2)"
 #     for i in patientgenerator(sheet, simpledetails, 'CN'):
 #         s = ','.join(i['fullname'], makeexceldatetime(i['date']), i['sampletype'], 
@@ -623,4 +823,65 @@ def profile_goodness_fit(amounts):
 #         s = 
 #         for am in amounts:
             
+def foobar2():
+    # g1 = groupbypatient(tracingtextgenerator("./data/inhib.crd"))
+    # g2 = groupbypatient(tracingtextgenerator("./data/cff.crd"))
+    # for i in g1:
+    #     try:
+    #         a = g1[i]
+    #         b = g2[i]
+    #         c = {}
+    #         d = {}
+    #         for j in a:
+    #             c[j['description'][:2]] = a[j]
+    #         for j in b:
+    #             d[j['description'][:2]] = b[j]
+    #         print(str(len(c)))
+    #         for x in c:
+    #             print(d[x]['description'])
+    #     except:
+    #         print("danger!: " + str(i))
+    g1 = tracingtextgenerator("./data/inhib.crd")
+    i = 0
+    outfile = open("glop.csv", 'w')
+    desc ="ID, description, t @ Amax (min), Amax (mm), Inhib dA/dt @ Amax (mm/min)"
+    print(desc)
+    outfile.write(desc + '\n')
+    for a in g1:
+        #if i == 5:
+        #pp.close()
+        #return
+        i = i + 1
+        g2 = tracingtextgenerator("./data/cff.crd")
+        for b in g2:
+            if a['fullname']==b['fullname'] and a['description'][:2]==b['description'][:2]:
+                try:
+                    tasplit,aasplit = splittime(a)
+                    tbsplit,absplit = splittime(b)
+                    ta = [x-tasplit for x,y in a['data'] if x >= tasplit]
+                    tb = [x-tbsplit for x,y in b['data'] if x >= tbsplit]
+                    ya = [y for x,y in a['data'] if x >= tasplit]
+                    yb = [y for x,y in b['data'] if x >= tbsplit]
+                    tamax,aamax = maxamplitude(a)
+                    tbmax,abmax = maxamplitude(b)
+                    adelt = deltaamplitude(a['data'])
+                    #plt.plot((t, t), (abmax, yval[0]), 'k')
+                    foo = [(x,y,z) for x,y,z in adelt if x>=tbmax][:4]
+                    t = tbmax - tbsplit
+                    yval = [y for x,y in a['data'] if x >= tbmax][0]
+                    da = (foo[-1][1] - foo[0][1])/(foo[-1][0]-foo[0][0])
+                    name = b['fullname']
+                    tthing = b['description']
+                    sfoo = name + ", " + tthing + ", " + str(t) + ", " + str(abmax) +  ", " + str(da)
+                    print(sfoo)
+                    outfile.write(sfoo + '\n')
+                except:
+                    print("Bah: " + a['fullname'] + ", " + a['description'])
+                break
+    outfile.close()
+                    
+    
+    
+
+    
 
