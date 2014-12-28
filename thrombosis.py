@@ -102,6 +102,8 @@ def writepatientinfo(writer_file, p):
 def patientwriter(writer_file):
     return lambda p: writepatientinfo(writer_file, p)
 
+
+
 def splittime(p):
     c = 0
     tsplit = 0
@@ -528,6 +530,7 @@ def dAintegration(p, a_right = 100):
     f_threshold = lambda d: d[0] >= tsplit and d[1] < a_right#and d[0] <= tdAmax
     df = [i for i in filter(f_threshold, ds)]
     s = sorted(df, key=lambda x: x[1])
+    
     if len(s) < 2:
         print("danger: ", p['sampletype'])
     cum = 0
@@ -749,72 +752,40 @@ def profile_goodness(amounts, p):
 def profile_goodness_fit(amounts):
     return partial(profile_goodness, amounts)
 
+def infer_Amax(model):
+    amps = numpy.linspace(0.001, 100, 100)
+    mx=max(zip(amps, model(amps)), key=lambda x:x[1])
+    A = mx[0]
+    dA = mx[1]
+    while dA > 0.01*mx[1]:
+        A = A + 0.01
+        dA = model([A])[0]
+    return (A,dA)
 
-
-def foobar():
-    # g1 = groupbypatient(tracingtextgenerator("./data/inhib.crd"))
-    # g2 = groupbypatient(tracingtextgenerator("./data/cff.crd"))
-    # for i in g1:
-    #     try:
-    #         a = g1[i]
-    #         b = g2[i]
-    #         c = {}
-    #         d = {}
-    #         for j in a:
-    #             c[j['description'][:2]] = a[j]
-    #         for j in b:
-    #             d[j['description'][:2]] = b[j]
-    #         print(str(len(c)))
-    #         for x in c:
-    #             print(d[x]['description'])
-    #     except:
-    #         print("danger!: " + str(i))
-    pp = PdfPages("glop.pdf")
-    g1 = tracingtextgenerator("./data/inhib.crd")
-    i = 0
-    for a in g1:
-        #if i == 5:
-        #pp.close()
-        #return
-        i = i + 1
-        g2 = tracingtextgenerator("./data/cff.crd")
-        for b in g2:
-            if a['fullname']==b['fullname'] and a['description'][:2]==b['description'][:2]:
-                try:
-                    tasplit,aasplit = splittime(a)
-                    tbsplit,absplit = splittime(b)
-                    ta = [x-tasplit for x,y in a['data'] if x >= tasplit]
-                    tb = [x-tbsplit for x,y in b['data'] if x >= tbsplit]
-                    ya = [y for x,y in a['data'] if x >= tasplit]
-                    yb = [y for x,y in b['data'] if x >= tbsplit]
-                    tamax,aamax = maxamplitude(a)
-                    tbmax,abmax = maxamplitude(b)
-                    adelt = deltaamplitude(a['data'])
-                    #plt.plot((t, t), (abmax, yval[0]), 'k')
-                    foo = [(x,y,z) for x,y,z in adelt if x>=tbmax][:4]
-                    t = tbmax - tbsplit
-                    yval = [y for x,y in a['data'] if x >= tbmax][0]
-                    da = (foo[-1][1] - foo[0][1])/(foo[-1][0]-foo[0][0])
-                    fig = plt.figure()
-                    ax = fig.add_subplot(111)
-                    fig.suptitle(a['fullname'] + ", " + b['description'])
-                    ax.plot(ta, ya, 'g')
-                    ax.plot(tb, yb, 'b')
-                    ax.legend(( "Inhib", "CFF"), loc=4)
-                    ax.set_xlabel('Time (min)')
-                    ax.set_ylabel('Amplitude (mm)')
-                    ax.scatter(t, yval)
-                    ax.annotate("dA/dt=%.2fmm/min"%(da), xy=(t, yval-1))
-                    #plt.show()
-                    pp.savefig(fig)
-                except:
-                    print("Bah: " + a['fullname'])
-                    
-                break
-    pp.close()
-    plt.close('all')
-            #ax.annotate("Area from split to crit: %.2f"%(area), xy=foo)
+def make_contour():
+    avals = numpy.linspace(0.001, 0.03, 50)
+    bvals = numpy.linspace(0.05, 0.15, 50)
+    x,y = numpy.meshgrid(avals, bvals)
+    z=[]
+    for i in avals:
+        l = []
+        for j in bvals:
+            m = solve_dA(i, j)
+            A,dA = infer_Amax(m)
+            print(A,dA)
+            #calcExpectedArea(i,j)
+            l.append(A)
+        z.append(l)
+    cs=plt.contourf(x,y,z, levels=range(5,145),aa=True)
+    plt.colorbar(cs, label="Predicted Amax (mm)")
+    plt.xlabel("Parameter a from model")
+    plt.ylabel("Parameter b from model")
+    #levs=[5,10,15,20,25,30,50,80,145]
+    #plt.clabel(cs, levels=levs, inline=1)
+    plt.show()
+    
 # def foo(data, outfile, amounts):
+
 #     meta = "patient ID, date-time, sample type, description, empirical dA integration (mm^2), offset from Acrit (min), model a, model b, model dA integration (mm^2), difference between model and empirical area (mm^2)"
 #     for i in patientgenerator(sheet, simpledetails, 'CN'):
 #         s = ','.join(i['fullname'], makeexceldatetime(i['date']), i['sampletype'], 
@@ -823,65 +794,4 @@ def foobar():
 #         s = 
 #         for am in amounts:
             
-def foobar2():
-    # g1 = groupbypatient(tracingtextgenerator("./data/inhib.crd"))
-    # g2 = groupbypatient(tracingtextgenerator("./data/cff.crd"))
-    # for i in g1:
-    #     try:
-    #         a = g1[i]
-    #         b = g2[i]
-    #         c = {}
-    #         d = {}
-    #         for j in a:
-    #             c[j['description'][:2]] = a[j]
-    #         for j in b:
-    #             d[j['description'][:2]] = b[j]
-    #         print(str(len(c)))
-    #         for x in c:
-    #             print(d[x]['description'])
-    #     except:
-    #         print("danger!: " + str(i))
-    g1 = tracingtextgenerator("./data/inhib.crd")
-    i = 0
-    outfile = open("glop.csv", 'w')
-    desc ="ID, description, t @ Amax (min), Amax (mm), Inhib dA/dt @ Amax (mm/min)"
-    print(desc)
-    outfile.write(desc + '\n')
-    for a in g1:
-        #if i == 5:
-        #pp.close()
-        #return
-        i = i + 1
-        g2 = tracingtextgenerator("./data/cff.crd")
-        for b in g2:
-            if a['fullname']==b['fullname'] and a['description'][:2]==b['description'][:2]:
-                try:
-                    tasplit,aasplit = splittime(a)
-                    tbsplit,absplit = splittime(b)
-                    ta = [x-tasplit for x,y in a['data'] if x >= tasplit]
-                    tb = [x-tbsplit for x,y in b['data'] if x >= tbsplit]
-                    ya = [y for x,y in a['data'] if x >= tasplit]
-                    yb = [y for x,y in b['data'] if x >= tbsplit]
-                    tamax,aamax = maxamplitude(a)
-                    tbmax,abmax = maxamplitude(b)
-                    adelt = deltaamplitude(a['data'])
-                    #plt.plot((t, t), (abmax, yval[0]), 'k')
-                    foo = [(x,y,z) for x,y,z in adelt if x>=tbmax][:4]
-                    t = tbmax - tbsplit
-                    yval = [y for x,y in a['data'] if x >= tbmax][0]
-                    da = (foo[-1][1] - foo[0][1])/(foo[-1][0]-foo[0][0])
-                    name = b['fullname']
-                    tthing = b['description']
-                    sfoo = name + ", " + tthing + ", " + str(t) + ", " + str(abmax) +  ", " + str(da)
-                    print(sfoo)
-                    outfile.write(sfoo + '\n')
-                except:
-                    print("Bah: " + a['fullname'] + ", " + a['description'])
-                break
-    outfile.close()
-                    
-    
-    
-
-    
 
