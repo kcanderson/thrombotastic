@@ -430,13 +430,14 @@ def indexanddelta(inhib, other):
     return da
 
 def findmatchie(p, searchdatabase, findfn):
-    try:
-        gen = (i for i in searchdatabase() if findfn(p, i))
-        match = next(gen)
-    except:
-        print("Could not find match for " + p['fullname'])
-        match = None
+    ##try:
+    gen = (i for i in searchdatabase() if findfn(p, i))
+    match = next(gen)
     return (p, match)
+    ##except:
+    ##print("Could not find match for " + p['fullname'])
+    ##match = None
+
 
 def findmatchie2(p, sd, findfn, sd2, findfn2):
     try:
@@ -460,7 +461,7 @@ def findmatch2(gm, findfn, gm2, findfn2):
     return lambda p: findmatchie2(p, gm, findfn, gm2, findfn2)
 
 def makehealthymatchedstring(patients):
-    metastring = ", ".join(["ID", "CRT Description", "CRT Amax (mm)", "CRT t at Amax (min)", "CRT LY30 (mm^2)", "CFF Description", "CFF Amax (mm)", "CFF t at Amax (min)", "CFF LY30 (mm^2)", "CFTX Description", "CFTX Amax (mm)", "CFTX t at Amax (min)", "CFTX LY30 (mm^2)", "CFTX dA @ CFF Amax (mm)"])
+    metastring = ", ".join(["ID", "CRT Description", "CRT Amax (mm)", "CRT t at Amax (min)", "CRT LY30", "CFF Description", "CFF Amax (mm)", "CFF t at Amax (min)", "CFF LY30", "CFTX Description", "CFTX Amax (mm)", "CFTX t at Amax (min)", "CFTX LY30", "CFTX dA @ CFF Amax (mm)"])
     ck = patients[0]
     ckd = simpledetails(ck)
     s = ckd['fullname'].replace(","," ") + ', ' + ckd['description'].replace(","," ") + ', '
@@ -491,37 +492,74 @@ def makehealthymatchedstring(patients):
         
     return (metastring, s)
 
-def healthygetmatched():
+def plotthree(patients):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    p0 = patients[0]
+    desc = []
+    if p0 is not None:
+        d = p0['data']
+        ax.plot([t for t,a in d], [a for t,a in d], 'b')
+        desc.append(p0['sampletype'] + '; ' + p0['description'])
+    p1 = patients[1]
+    if p1 is not None:
+        d = p1['data']
+        ax.plot([t for t,a in d], [a for t,a in d], 'g')
+        desc.append(p1['sampletype'] + '; ' + p1['description'])
+    p2 = patients[2]
+    if p2 is not None:
+        d = p2['data']
+        ax.plot([t for t,a in d], [a for t,a in d], 'r')
+        desc.append(p2['sampletype'] + '; ' + p2['description'])
+    ax.legend(desc)
+    ax.set_xlabel("Time (min)")
+    ax.set_ylabel("Amplitude (mm)")
+    return fig, p0['fullname']
+
+def healthymatchingsgenerator(fun):
     findfn = lambda a,b:a['fullname'].lower()==b['fullname'].lower() and a['description'][0:2].lower()==b['description'][0:2].lower()
     gen_inhib = lambda : tracingtextgenerator("./data/inhib.crd")
     gen_cff = lambda : tracingtextgenerator("./data/cff.crd")
-    ##g = tracingtextgenerator("./data/ck.crd", findmatch2(gen_cff, findfn, gen_inhib, findfn))
-    fn = lambda p: makehealthymatchedstring(findmatch2(gen_cff, findfn, gen_inhib, findfn)(p))
+    #fn = lambda p: plotthree(findmatch2(gen_cff, findfn, gen_inhib, findfn)(p))
+    fn = lambda p: fun(findmatch2(gen_cff, findfn, gen_inhib, findfn)(p))
     g = tracingtextgenerator("./data/ck.crd", fn)
-    write_function_csv("whoaglop.csv", g)
+    return g
+    
+def tapmatchingsgenerator(fun):
+    findfn = lambda a,b:a['fullname'].lower()==b['fullname'].lower()
+    gen_inhib = lambda : tracingtextgenerator("./data/Combat/tap.crd", lambda p: p, lambda p: p['sampletype'][:3]=="CFF" and p['description'].lower().find("txa")>=0)
+    gen_cff = lambda : tracingtextgenerator("./data/Combat/tap.crd", lambda p: p, lambda p: p['sampletype'][:3]=="CFF" and p['description'].lower().find("txa")<0)
+    #fn = lambda p: plotthree(findmatch2(gen_cff, findfn, gen_inhib, findfn)(p))
+    fn = lambda p: fun(findmatch2(gen_cff, findfn, gen_inhib, findfn)(p))
+    g = tracingtextgenerator("./data/Combat/tap.crd", fn, lambda p: p['sampletype'][:3]=="CRT")
+    return g
+    
+def combatmatchingsgenerator(fun):
+    findfn = lambda a,b:a['fullname'][:5].lower()==b['fullname'][:5].lower() and b['description'].find(a['description'])>=0
+    gen_inhib = lambda : tracingtextgenerator("./data/Combat/combat.crd", lambda p: p, lambda p: p['sampletype'][:3]=="CFF" and p['description'].lower().find("txa")>=0)
+    gen_cff = lambda : tracingtextgenerator("./data/Combat/combat.crd", lambda p: p, lambda p: p['sampletype'][:3]=="CFF" and p['description'].lower().find("txa")<0)
+    #fn = lambda p: plotthree(findmatch2(gen_cff, findfn, gen_inhib, findfn)(p))
+    fn = lambda p: fun(findmatch2(gen_cff, findfn, gen_inhib, findfn)(p))
+    g = tracingtextgenerator("./data/Combat/combat.crd", fn, lambda p: p['sampletype'][:3]=="CRT")
+    return g
+
+def plothealthy():
+    makePDF(healthymatchingsgenerator(plotthree), "healthy_matchings.pdf")
+
+def plottap():
+    makePDF(tapmatchingsgenerator(plotthree), "tap_matchings.pdf")
+    
+def plotcombat():
+    makePDF(combatmatchingsgenerator(plotthree), "combat_matchings.pdf")
+    
+def healthygetmatched():
+    write_function_csv("healthy_matchings_ly30.csv", healthymatchingsgenerator(makehealthymatchedstring))
 
 def tapgetmatched():
-    cff_findfn = lambda a,b:a['fullname'].lower()==b['fullname'].lower() and b['sampletype'][:3]=="CFF" and b['description'].lower().find("txa")<0
-    inhib_findfn = lambda a,b:a['fullname'].lower()==b['fullname'].lower() and b['sampletype'][:3]=="CFF" and b['description'].lower().find("txa")>=0
-    gen_inhib = lambda : tracingtextgenerator("./data/Combat/tap.crd")
-    gen_cff = lambda : tracingtextgenerator("./data/Combat/tap.crd")
-    ##g = tracingtextgenerator("./data/ck.crd", findmatch2(gen_cff, findfn, gen_inhib, findfn))
-    fn = lambda p: makehealthymatchedstring(findmatch2(gen_cff, cff_findfn, gen_inhib, inhib_findfn)(p))
-    g = tracingtextgenerator("./data/Combat/tap.crd", fn, lambda p: p['sampletype'][:3]=="CRT")
-    write_function_csv("whoa.csv", g)
-    #return next(g)
+    write_function_csv("tap_matchings_ly30.csv", tapmatchingsgenerator(makehealthymatchedstring))
 
 def combatgetmatched():
-    cff_findfn = lambda a,b:a['fullname'][:5].lower()==b['fullname'][:5].lower() and b['sampletype'][:3]=="CFF" and b['description'].find(a['description'])>=0 and b['description'].lower().find("txa")<0
-    inhib_findfn = lambda a,b:a['fullname'][:5].lower()==b['fullname'][:5].lower() and b['sampletype'][:3]=="CFF" and b['description'].find(a['description'])>=0 and b['description'].lower().find("txa")>=0
-
-    gen_inhib = lambda : tracingtextgenerator("./data/Combat/combat.crd")
-    gen_cff = lambda : tracingtextgenerator("./data/Combat/combat.crd")
-    ##g = tracingtextgenerator("./data/ck.crd", findmatch2(gen_cff, findfn, gen_inhib, findfn))
-    fn = lambda p: makehealthymatchedstring(findmatch2(gen_cff, cff_findfn, gen_inhib, inhib_findfn)(p))
-    g = tracingtextgenerator("./data/Combat/combat.crd", fn, lambda p: p['sampletype'][:3]=="CRT")
-    write_function_csv("whoa.csv", g)
-    #return next(g)
+    write_function_csv("combat_matchings_ly30.csv", combatmatchingsgenerator(makehealthymatchedstring))
     
 def dAintegration(p, a_right = 100):
     tsplit, asplit, a5, a10 = amplitude5and10(p)
@@ -784,14 +822,5 @@ def make_contour():
     #plt.clabel(cs, levels=levs, inline=1)
     plt.show()
     
-# def foo(data, outfile, amounts):
-
-#     meta = "patient ID, date-time, sample type, description, empirical dA integration (mm^2), offset from Acrit (min), model a, model b, model dA integration (mm^2), difference between model and empirical area (mm^2)"
-#     for i in patientgenerator(sheet, simpledetails, 'CN'):
-#         s = ','.join(i['fullname'], makeexceldatetime(i['date']), i['sampletype'], 
-    
-#     for d in data:
-#         s = 
-#         for am in amounts:
             
 
